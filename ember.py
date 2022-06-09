@@ -21,8 +21,6 @@ class Ember:
         p = subprocess.Popen([self.adb_path, "shell", "input", "tap", str(x), str(y)])
         p.wait()
 
-        print(p.args)
-
     def swipe(self, x_start, y_start, x_end, y_end, duration=30):
         p = subprocess.Popen([self.adb_path, "shell", "input", "swipe", str(x_start), str(y_start), str(x_end), str(y_end), str(duration)])
         p.wait()
@@ -41,6 +39,5 @@ class Ember:
 
     def touch_first_image_find(self, target_image_path, similarity):
         targets = self.get_images_location(target_image_path, similarity)
-        print(targets)
 
         self.touch_screen(targets[0][0], targets[0][1])
