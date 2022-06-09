@@ -33,6 +33,6 @@ class Ember:
         res = cv2.matchTemplate(screen, target_image_array, cv2.TM_CCOEFF_NORMED)
         locations = np.where(res >= similarity)
 
-        xs, ys = locations
+        ys, xs = locations
 
         return [[x + int(w / 2), y + int(h / 2)] for x, y in zip(xs, ys)]
