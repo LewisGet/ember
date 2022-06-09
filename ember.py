@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import subprocess
+import io
 
 
 class Ember:
@@ -9,8 +10,10 @@ class Ember:
         self.screen_cache_path = config.screen_cache_path
 
     def get_screen(self):
-        p = subprocess.Popen([self.adb_path, "exec-out", "screencap", "-p", ">", self.screen_cache_path])
+        f = open(self.screen_cache_path, "w")
+        p = subprocess.Popen([self.adb_path, "exec-out", "screencap", "-p"], stdout=f)
         p.wait()
+        f.close()
 
         return cv2.imread(self.screen_cache_path)
 
