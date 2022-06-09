@@ -3,6 +3,33 @@ import numpy as np
 import subprocess
 
 
+class Location:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+
+class Image:
+    def __init__(self, image):
+        if type(image) == str:
+            self.Main = cv2.imread(image)
+            self.Offset = Location(0, 0)
+            self.Similarity = 0.85
+
+        if type(image) == Image:
+            self.Main = image.Main
+            self.Offset = image.Offset
+            self.Similarity = image.Similarity
+
+    def set_offset(self, location):
+        self.Offset = location
+        return self
+
+    def set_similarity(self, value):
+        self.Similarity = value
+        return self
+
+
 class Ember:
     def __init__(self, config):
         self.adb_path = config.adb_path
