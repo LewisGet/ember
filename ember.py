@@ -83,7 +83,7 @@ class Ember:
     def touch_first_image_find(self, target_image_path, similarity):
         targets = self.get_images_location(target_image_path, similarity)
 
-        print(len(targets))
-        print([(i.x, i.y) for i in targets])
-
-        self.touch_screen(targets[0].x, targets[0].y)
+        try:
+            self.touch_screen(targets[0].x, targets[0].y)
+        except IndexError:
+            raise Exception(target_image_path + " not found")
