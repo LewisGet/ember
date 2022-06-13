@@ -60,7 +60,7 @@ class Ember:
     def get_images_location(self, img, min_distance=5):
         screen = self.get_screen()
         img = Image(img)
-        w, h = img.Main.shape[:-1]
+        h, w = img.Main.shape[:-1]
 
         res = cv2.matchTemplate(screen, img.Main, cv2.TM_CCOEFF_NORMED)
         locations = np.where(res >= img.Similarity)
