@@ -14,7 +14,10 @@ class Location:
 
 class Image:
     def __init__(self, image):
+        self.org_path = None
+
         if type(image) == str:
+            self.org_path = image
             self.Main = cv2.imread(image)
             self.Offset = Location(0, 0)
             self.Similarity = 0.85
@@ -54,13 +57,13 @@ class Ember:
         p = subprocess.Popen([self.adb_path, "shell", "input", "swipe", str(x_start), str(y_start), str(x_end), str(y_end), str(duration)])
         p.wait()
 
-    def get_images_location(self, target_image_path, similarity, min_distance=5):
+    def get_images_location(self, img, min_distance=5):
         screen = self.get_screen()
-        target_image_array = cv2.imread(target_image_path)
-        w, h = target_image_array.shape[:-1]
+        img = Image(img)
+        w, h = img.Main.shape[:-1]
 
-        res = cv2.matchTemplate(screen, target_image_array, cv2.TM_CCOEFF_NORMED)
-        locations = np.where(res >= similarity)
+        res = cv2.matchTemplate(screen, img.Main, cv2.TM_CCOEFF_NORMED)
+        locations = np.where(res >= img.Similarity)
 
         ys, xs = locations
 
@@ -80,10 +83,10 @@ class Ember:
 
         return return_locations
 
-    def touch_first_image_find(self, target_image_path, similarity):
-        targets = self.get_images_location(target_image_path, similarity)
+    def touch_first_image_find(self, image):
+        targets = self.get_images_location(image)
 
         try:
-            self.touch_screen(targets[0].x, targets[0].y)
+            self.touch_screen(targets[0].x + image.Offset.x, targets[0].y + image.Offset.y)
         except IndexError:
-            raise Exception(target_image_path + " not found")
+            raise Exception(image.org_path + " not found")
