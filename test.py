@@ -8,4 +8,4 @@ class config:
 
 
 init = ember.Ember(config())
-init.touch_first_image_find("test_target.png", 0.8)
+init.touch_first_image_find(ember.Image("test_target.png").set_similarity(0.8))
