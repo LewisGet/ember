@@ -6,6 +6,8 @@ used by adb and openCV
 
 ## Getting started
 
+### Android
+
 ```pydocstring
 # create config with adb path, and android screen file cache
 class config:
@@ -15,4 +17,16 @@ class config:
 
 # init with config
 init = ember.Ember(config())
+```
+
+### Windows
+
+```pydocstring
+class config:
+    def __init__(self):
+        self.screen_region = "window region size or None"
+
+
+# init with ember
+init = ember.WindowsEmber(config())
 ```

@@ -9,3 +9,12 @@ class config:
 
 init = ember.Ember(config())
 init.touch_first_image_find(ember.Image("test_target.png").set_similarity(0.8))
+
+
+class WindowsConfig:
+    def __init__(self):
+        self.screen_region = None
+
+init = ember.WindowsEmber(config())
+init.touch_first_image_find(ember.Image("test_target.png").set_similarity(0.8))
+

@@ -90,3 +90,63 @@ class Ember:
             self.touch_screen(targets[0].x + image.Offset.x, targets[0].y + image.Offset.y)
         except IndexError:
             raise Exception(image.org_path + " not found")
+
+
+class WindowsEmber(Ember):
+    def __init__(self, config):
+        self.screen_region = getattr(config, "screen_region", None)
+
+    def get_screen(self):
+        import mss
+
+        with mss.mss() as sct:
+            if self.screen_region:
+                left, top, width, height = self.screen_region
+                monitor = {"left": left, "top": top, "width": width, "height": height}
+            else:
+                monitor = sct.monitors[1]
+
+            raw = sct.grab(monitor)
+            img = np.array(raw)
+            return cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+
+    def touch_screen(self, x, y):
+        import ctypes
+
+        user32 = ctypes.windll.user32
+        screen_w = user32.GetSystemMetrics(0)
+        screen_h = user32.GetSystemMetrics(1)
+
+        norm_x = int(x * 65535 / screen_w)
+        norm_y = int(y * 65535 / screen_h)
+
+        user32.mouse_event(0x0001 | 0x8000, norm_x, norm_y, 0, 0)
+        user32.mouse_event(0x0002 | 0x8000, norm_x, norm_y, 0, 0)
+        user32.mouse_event(0x0004 | 0x8000, norm_x, norm_y, 0, 0)
+
+    def swipe(self, x_start, y_start, x_end, y_end, duration=30):
+        import ctypes
+        import time
+
+        user32 = ctypes.windll.user32
+        screen_w = user32.GetSystemMetrics(0)
+        screen_h = user32.GetSystemMetrics(1)
+
+        steps = 20
+        delay = (duration / 1000.0) / steps
+
+        def to_norm(x, y):
+            return int(x * 65535 / screen_w), int(y * 65535 / screen_h)
+
+        nx, ny = to_norm(x_start, y_start)
+        user32.mouse_event(0x0001 | 0x8000, nx, ny, 0, 0)
+        user32.mouse_event(0x0002 | 0x8000, nx, ny, 0, 0)
+
+        for i in range(1, steps + 1):
+            ix = x_start + (x_end - x_start) * i // steps
+            iy = y_start + (y_end - y_start) * i // steps
+            nx, ny = to_norm(ix, iy)
+            user32.mouse_event(0x0001 | 0x8000, nx, ny, 0, 0)
+            time.sleep(delay)
+
+        user32.mouse_event(0x0004 | 0x8000, nx, ny, 0, 0)
