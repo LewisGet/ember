@@ -1,7 +1,10 @@
+import base64
 import cv2
+import json
 import numpy as np
 import re
 import subprocess
+import threading
 import xml.etree.ElementTree as ET
 
 
@@ -65,26 +68,24 @@ class UINode:
         return f"UINode(class={self.class_name!r}, text={self.text!r})"
 
 
-class Ember:
-    def __init__(self, config):
-        self.adb_path = config.adb_path
-        self.screen_cache_path = config.screen_cache_path
-
+class EmberBase:
     def get_screen(self):
-        f = open(self.screen_cache_path, "w")
-        p = subprocess.Popen([self.adb_path, "exec-out", "screencap", "-p"], stdout=f)
-        p.wait()
-        f.close()
-
-        return cv2.imread(self.screen_cache_path)
+        raise NotImplementedError
 
     def touch_screen(self, x, y):
-        p = subprocess.Popen([self.adb_path, "shell", "input", "tap", str(x), str(y)])
-        p.wait()
+        raise NotImplementedError
 
     def _execute_swipe(self, x_start, y_start, x_end, y_end, duration=30):
-        p = subprocess.Popen([self.adb_path, "shell", "input", "swipe", str(x_start), str(y_start), str(x_end), str(y_end), str(duration)])
-        p.wait()
+        raise NotImplementedError
+
+    def input_text(self, text: str) -> None:
+        raise NotImplementedError
+
+    def key_event(self, keycode) -> None:
+        raise NotImplementedError
+
+    def dump_ui(self) -> str:
+        raise NotImplementedError
 
     def swipe_arc(self, x_start, y_start, x_end, y_end, c, duration=30, damping=0.6):
         dx = x_end - x_start
@@ -140,6 +141,46 @@ class Ember:
         except IndexError:
             raise Exception(image.org_path + " not found")
 
+    def get_ui_nodes(self, filter_fn=None) -> list:
+        root = ET.fromstring(self.dump_ui())
+        nodes = [UINode(el) for el in root.iter("node")]
+        if filter_fn is not None:
+            nodes = [n for n in nodes if filter_fn(n)]
+        return nodes
+
+    def find_nodes_by_text(self, text: str, exact: bool = True) -> list:
+        if exact:
+            return self.get_ui_nodes(lambda n: n.text == text)
+        return self.get_ui_nodes(lambda n: text in n.text)
+
+    def find_nodes_by_class(self, class_name: str) -> list:
+        return self.get_ui_nodes(lambda n: n.class_name == class_name)
+
+    def find_nodes_by_resource_id(self, resource_id: str) -> list:
+        return self.get_ui_nodes(lambda n: n.resource_id == resource_id)
+
+
+class Ember(EmberBase):
+    def __init__(self, config):
+        self.adb_path = config.adb_path
+        self.screen_cache_path = config.screen_cache_path
+
+    def get_screen(self):
+        f = open(self.screen_cache_path, "w")
+        p = subprocess.Popen([self.adb_path, "exec-out", "screencap", "-p"], stdout=f)
+        p.wait()
+        f.close()
+        return cv2.imread(self.screen_cache_path)
+
+    def touch_screen(self, x, y):
+        p = subprocess.Popen([self.adb_path, "shell", "input", "tap", str(x), str(y)])
+        p.wait()
+
+    def _execute_swipe(self, x_start, y_start, x_end, y_end, duration=30):
+        p = subprocess.Popen([self.adb_path, "shell", "input", "swipe",
+                               str(x_start), str(y_start), str(x_end), str(y_end), str(duration)])
+        p.wait()
+
     def input_text(self, text: str) -> None:
         p = subprocess.Popen([self.adb_path, "shell", "input", "text", text])
         p.wait()
@@ -159,23 +200,91 @@ class Ember:
             raise RuntimeError("uiautomator dump returned no XML hierarchy")
         return output[: end + len("</hierarchy>")]
 
-    def get_ui_nodes(self, filter_fn=None) -> list:
-        root = ET.fromstring(self.dump_ui())
-        nodes = [UINode(el) for el in root.iter("node")]
-        if filter_fn is not None:
-            nodes = [n for n in nodes if filter_fn(n)]
-        return nodes
 
-    def find_nodes_by_text(self, text: str, exact: bool = True) -> list:
-        if exact:
-            return self.get_ui_nodes(lambda n: n.text == text)
-        return self.get_ui_nodes(lambda n: text in n.text)
+class AccessibilityEmber(EmberBase):
+    """
+    Drop-in replacement for Ember. Talks to EmberAccessibilityService on the
+    Android device via WebSocket — no ADB or developer mode required.
 
-    def find_nodes_by_class(self, class_name: str) -> list:
-        return self.get_ui_nodes(lambda n: n.class_name == class_name)
+    Requires: pip install websocket-client
+    """
 
-    def find_nodes_by_resource_id(self, resource_id: str) -> list:
-        return self.get_ui_nodes(lambda n: n.resource_id == resource_id)
+    def __init__(self, ws_url: str = "ws://192.168.1.100:8765"):
+        try:
+            import websocket as _wslib
+            self._wslib = _wslib
+        except ImportError:
+            raise ImportError("pip install websocket-client")
+
+        self._url     = ws_url
+        self._pending: dict = {}
+        self._lock    = threading.Lock()
+        self._next_id = 0
+        self._app     = None
+        self._connect()
+
+    def _connect(self):
+        import time
+        app = self._wslib.WebSocketApp(
+            self._url,
+            on_message=self._on_message,
+            on_error=lambda ws, e: None,
+            on_close=lambda ws, c, m: None,
+        )
+        threading.Thread(target=lambda: app.run_forever(reconnect=5), daemon=True).start()
+        self._app = app
+        time.sleep(0.5)
+
+    def _on_message(self, ws, raw: str):
+        data = json.loads(raw)
+        req_id = data.get("id")
+        with self._lock:
+            entry = self._pending.get(req_id)
+        if entry:
+            entry["data"] = data
+            entry["event"].set()
+
+    def _call(self, action: str, timeout: float = 10.0, **params):
+        with self._lock:
+            self._next_id += 1
+            req_id = self._next_id
+            evt = threading.Event()
+            self._pending[req_id] = {"event": evt, "data": None}
+
+        self._app.send(json.dumps({"id": req_id, "action": action, **params}))
+
+        if not evt.wait(timeout):
+            with self._lock:
+                self._pending.pop(req_id, None)
+            raise TimeoutError(f"{action} timed out after {timeout}s")
+
+        with self._lock:
+            data = self._pending.pop(req_id)["data"]
+
+        if "error" in data:
+            raise RuntimeError(data["error"])
+        return data.get("result")
+
+    def get_screen(self):
+        b64 = self._call("screenshot", timeout=10)
+        arr = np.frombuffer(base64.b64decode(b64), dtype=np.uint8)
+        return cv2.imdecode(arr, cv2.IMREAD_COLOR)
+
+    def touch_screen(self, x, y):
+        self._call("tap", x=x, y=y)
+
+    def _execute_swipe(self, x_start, y_start, x_end, y_end, duration=30):
+        self._call("swipe", x_start=x_start, y_start=y_start,
+                   x_end=x_end, y_end=y_end, duration=duration)
+
+    def input_text(self, text: str) -> None:
+        self._call("input_text", text=text)
+
+    def key_event(self, keycode) -> None:
+        self._call("key_event", keycode=str(keycode))
+
+    def dump_ui(self) -> str:
+        return self._call("dump_ui", timeout=5)
 
 
 class WindowsEmber(Ember):
