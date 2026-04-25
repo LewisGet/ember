@@ -82,9 +82,29 @@ class Ember:
         p = subprocess.Popen([self.adb_path, "shell", "input", "tap", str(x), str(y)])
         p.wait()
 
-    def swipe(self, x_start, y_start, x_end, y_end, duration=30):
+    def _execute_swipe(self, x_start, y_start, x_end, y_end, duration=30):
         p = subprocess.Popen([self.adb_path, "shell", "input", "swipe", str(x_start), str(y_start), str(x_end), str(y_end), str(duration)])
         p.wait()
+
+    def swipe_arc(self, x_start, y_start, x_end, y_end, c, duration=30, damping=0.6):
+        dx = x_end - x_start
+        dy = y_end - y_start
+        length = (dx ** 2 + dy ** 2) ** 0.5
+        if length == 0:
+            self._execute_swipe(x_start, y_start, x_end, y_end, duration)
+            return
+        mx = (x_start + x_end) / 2
+        my = (y_start + y_end) / 2
+        px = int(mx + (-dy / length) * c)
+        py = int(my + ( dx / length) * c)
+        self._execute_swipe(x_start, y_start, px, py, int(duration * (1 - damping)))
+        self._execute_swipe(px, py, x_end, y_end, int(duration * damping))
+
+    def swipe(self, x_start, y_start, x_end, y_end, duration=30, c=20, damping=0.6):
+        mx = int((x_start + x_end) / 2)
+        my = int((y_start + y_end) / 2)
+        self.swipe_arc(x_start, y_start, mx, my, c, int(duration * (1 - damping)), damping)
+        self.swipe_arc(mx, my, x_end, y_end, c, int(duration * damping), damping)
 
     def get_images_location(self, img, min_distance=5):
         screen = self.get_screen()
@@ -190,7 +210,7 @@ class WindowsEmber(Ember):
         user32.mouse_event(0x0002 | 0x8000, norm_x, norm_y, 0, 0)
         user32.mouse_event(0x0004 | 0x8000, norm_x, norm_y, 0, 0)
 
-    def swipe(self, x_start, y_start, x_end, y_end, duration=30):
+    def _execute_swipe(self, x_start, y_start, x_end, y_end, duration=30):
         import ctypes
         import time
 

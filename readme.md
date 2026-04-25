@@ -78,6 +78,12 @@ e.touch_screen(x, y)
 e.swipe(x_start, y_start, x_end, y_end, duration=30)  # duration in ms
 ```
 
+> `swipe` 會執行兩次 `swipe_arc` 讓他有顫動感
+> `swipe_arc` 路徑為 `A → M+c → B`
+> - `M` = midpoint of AB
+> - `P1` = perpendicular offset of A→M midpoint by `c` pixels
+> - `P2` = perpendicular offset of M→B midpoint by `c` pixels
+
 ### Text input
 
 ```python
