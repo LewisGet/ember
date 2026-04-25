@@ -1,6 +1,8 @@
 import cv2
 import numpy as np
+import re
 import subprocess
+import xml.etree.ElementTree as ET
 
 
 class Location:
@@ -34,6 +36,33 @@ class Image:
     def set_similarity(self, value):
         self.Similarity = value
         return self
+
+
+class UINode:
+    def __init__(self, element):
+        self.text         = element.get("text", "")
+        self.resource_id  = element.get("resource-id", "")
+        self.class_name   = element.get("class", "")
+        self.content_desc = element.get("content-desc", "")
+        self.clickable    = element.get("clickable") == "true"
+        self.enabled      = element.get("enabled") == "true"
+        self._bounds      = element.get("bounds", "")
+
+    def bounds(self):
+        m = re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', self._bounds)
+        if not m:
+            return None
+        x1, y1, x2, y2 = map(int, m.groups())
+        return {"x1": x1, "y1": y1, "x2": x2, "y2": y2}
+
+    def center(self):
+        b = self.bounds()
+        if not b:
+            return None
+        return Location((b["x1"] + b["x2"]) // 2, (b["y1"] + b["y2"]) // 2)
+
+    def __repr__(self):
+        return f"UINode(class={self.class_name!r}, text={self.text!r})"
 
 
 class Ember:
@@ -90,6 +119,43 @@ class Ember:
             self.touch_screen(targets[0].x + image.Offset.x, targets[0].y + image.Offset.y)
         except IndexError:
             raise Exception(image.org_path + " not found")
+
+    def input_text(self, text: str) -> None:
+        p = subprocess.Popen([self.adb_path, "shell", "input", "text", text])
+        p.wait()
+
+    def key_event(self, keycode) -> None:
+        p = subprocess.Popen([self.adb_path, "shell", "input", "keyevent", str(keycode)])
+        p.wait()
+
+    def dump_ui(self) -> str:
+        result = subprocess.run(
+            [self.adb_path, "shell", "uiautomator", "dump", "/dev/tty"],
+            capture_output=True, text=True,
+        )
+        output = result.stdout
+        end = output.rfind("</hierarchy>")
+        if end < 0:
+            raise RuntimeError("uiautomator dump returned no XML hierarchy")
+        return output[: end + len("</hierarchy>")]
+
+    def get_ui_nodes(self, filter_fn=None) -> list:
+        root = ET.fromstring(self.dump_ui())
+        nodes = [UINode(el) for el in root.iter("node")]
+        if filter_fn is not None:
+            nodes = [n for n in nodes if filter_fn(n)]
+        return nodes
+
+    def find_nodes_by_text(self, text: str, exact: bool = True) -> list:
+        if exact:
+            return self.get_ui_nodes(lambda n: n.text == text)
+        return self.get_ui_nodes(lambda n: text in n.text)
+
+    def find_nodes_by_class(self, class_name: str) -> list:
+        return self.get_ui_nodes(lambda n: n.class_name == class_name)
+
+    def find_nodes_by_resource_id(self, resource_id: str) -> list:
+        return self.get_ui_nodes(lambda n: n.resource_id == resource_id)
 
 
 class WindowsEmber(Ember):
