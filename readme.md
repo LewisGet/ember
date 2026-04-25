@@ -19,6 +19,12 @@ class config:
 init = ember.Ember(config())
 ```
 
+### Android server
+
+```pydocstring
+init = ember.AccessibilityEmber("ws://android_ip:8765")
+```
+
 ### Windows
 
 ```pydocstring
