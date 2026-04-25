@@ -271,11 +271,11 @@ class AccessibilityEmber(EmberBase):
         return cv2.imdecode(arr, cv2.IMREAD_COLOR)
 
     def touch_screen(self, x, y):
-        self._call("tap", x=x, y=y)
+        self._call("tap", x=int(x), y=int(y))
 
     def _execute_swipe(self, x_start, y_start, x_end, y_end, duration=30):
-        self._call("swipe", x_start=x_start, y_start=y_start,
-                   x_end=x_end, y_end=y_end, duration=duration)
+        self._call("swipe", x_start=int(x_start), y_start=int(y_start),
+                   x_end=int(x_end), y_end=int(y_end), duration=int(duration))
 
     def input_text(self, text: str) -> None:
         self._call("input_text", text=text)
