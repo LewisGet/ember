@@ -6,6 +6,7 @@ import re
 import subprocess
 import threading
 import xml.etree.ElementTree as ET
+from functools import singledispatchmethod
 
 
 class Location:
@@ -72,10 +73,53 @@ class EmberBase:
     def get_screen(self):
         raise NotImplementedError
 
+    @singledispatchmethod
+    def to_location(self, x, y):
+        return Location(x, y)
+
+    @to_location.register(Location)
+    def _(self, location):
+        return location
+
+    @to_location.register(Image)
+    def _(self, image):
+        locs = self.get_images_location(image)
+        if not locs:
+            raise Exception(str(image.org_path) + " not found")
+        loc = locs[0]
+        return Location(loc.x + image.Offset.x, loc.y + image.Offset.y)
+
+    @to_location.register(dict)
+    def _(self, d):
+        return Location(d["x"], d["y"])
+
+    @singledispatchmethod
     def touch_screen(self, x, y):
+        self._touch_screen_impl(x, y)
+
+    @touch_screen.register(Location)
+    @touch_screen.register(Image)
+    @touch_screen.register(dict)
+    def _(self, point):
+        loc = self.to_location(point)
+        self._touch_screen_impl(loc.x, loc.y)
+
+    def _touch_screen_impl(self, x, y):
         raise NotImplementedError
 
+    @singledispatchmethod
     def _execute_swipe(self, x_start, y_start, x_end, y_end, duration=30):
+        self._execute_swipe_impl(x_start, y_start, x_end, y_end, duration)
+
+    @_execute_swipe.register(Location)
+    @_execute_swipe.register(Image)
+    @_execute_swipe.register(dict)
+    def _(self, start, end, duration=30):
+        s = self.to_location(start)
+        e = self.to_location(end)
+        self._execute_swipe_impl(s.x, s.y, e.x, e.y, duration)
+
+    def _execute_swipe_impl(self, x_start, y_start, x_end, y_end, duration=30):
         raise NotImplementedError
 
     def input_text(self, text: str) -> None:
@@ -87,6 +131,7 @@ class EmberBase:
     def dump_ui(self) -> str:
         raise NotImplementedError
 
+    @singledispatchmethod
     def swipe_arc(self, x_start, y_start, x_end, y_end, c, duration=30, damping=0.6):
         dx = x_end - x_start
         dy = y_end - y_start
@@ -97,15 +142,32 @@ class EmberBase:
         mx = (x_start + x_end) / 2
         my = (y_start + y_end) / 2
         px = int(mx + (-dy / length) * c)
-        py = int(my + ( dx / length) * c)
+        py = int(my + (dx / length) * c)
         self._execute_swipe(x_start, y_start, px, py, int(duration * (1 - damping)))
         self._execute_swipe(px, py, x_end, y_end, int(duration * damping))
 
+    @swipe_arc.register(Location)
+    @swipe_arc.register(Image)
+    @swipe_arc.register(dict)
+    def _(self, start, end, c, duration=30, damping=0.6):
+        s = self.to_location(start)
+        e = self.to_location(end)
+        self.swipe_arc(s.x, s.y, e.x, e.y, c, duration, damping)
+
+    @singledispatchmethod
     def swipe(self, x_start, y_start, x_end, y_end, duration=30, c=20, damping=0.6):
         mx = int((x_start + x_end) / 2)
         my = int((y_start + y_end) / 2)
         self.swipe_arc(x_start, y_start, mx, my, c, int(duration * (1 - damping)), damping)
         self.swipe_arc(mx, my, x_end, y_end, c, int(duration * damping), damping)
+
+    @swipe.register(Location)
+    @swipe.register(Image)
+    @swipe.register(dict)
+    def _(self, start, end, duration=30, c=20, damping=0.6):
+        s = self.to_location(start)
+        e = self.to_location(end)
+        self.swipe(s.x, s.y, e.x, e.y, duration, c, damping)
 
     def get_images_location(self, img, min_distance=5):
         screen = self.get_screen()
@@ -172,11 +234,11 @@ class Ember(EmberBase):
         f.close()
         return cv2.imread(self.screen_cache_path)
 
-    def touch_screen(self, x, y):
+    def _touch_screen_impl(self, x, y):
         p = subprocess.Popen([self.adb_path, "shell", "input", "tap", str(x), str(y)])
         p.wait()
 
-    def _execute_swipe(self, x_start, y_start, x_end, y_end, duration=30):
+    def _execute_swipe_impl(self, x_start, y_start, x_end, y_end, duration=30):
         p = subprocess.Popen([self.adb_path, "shell", "input", "swipe",
                                str(x_start), str(y_start), str(x_end), str(y_end), str(duration)])
         p.wait()
@@ -216,7 +278,7 @@ class AccessibilityEmber(EmberBase):
         except ImportError:
             raise ImportError("pip install websocket-client")
 
-        self._url     = ws_url
+        self._url = ws_url
         self._pending: dict = {}
         self._lock    = threading.Lock()
         self._next_id = 0
@@ -270,12 +332,16 @@ class AccessibilityEmber(EmberBase):
         arr = np.frombuffer(base64.b64decode(b64), dtype=np.uint8)
         return cv2.imdecode(arr, cv2.IMREAD_COLOR)
 
-    def touch_screen(self, x, y):
+    def _touch_screen_impl(self, x, y):
         self._call("tap", x=int(x), y=int(y))
 
-    def _execute_swipe(self, x_start, y_start, x_end, y_end, duration=30):
-        self._call("swipe", x_start=int(x_start), y_start=int(y_start),
-                   x_end=int(x_end), y_end=int(y_end), duration=int(duration))
+    def _execute_swipe_impl(self, x_start, y_start, x_end, y_end, duration=30):
+        self._call(
+            "swipe",
+            x_start=int(x_start), y_start=int(y_start),
+            x_end=int(x_end), y_end=int(y_end),
+            duration=int(duration)
+        )
 
     def input_text(self, text: str) -> None:
         self._call("input_text", text=text)
@@ -305,7 +371,7 @@ class WindowsEmber(Ember):
             img = np.array(raw)
             return cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
 
-    def touch_screen(self, x, y):
+    def _touch_screen_impl(self, x, y):
         import ctypes
 
         user32 = ctypes.windll.user32
@@ -319,7 +385,7 @@ class WindowsEmber(Ember):
         user32.mouse_event(0x0002 | 0x8000, norm_x, norm_y, 0, 0)
         user32.mouse_event(0x0004 | 0x8000, norm_x, norm_y, 0, 0)
 
-    def _execute_swipe(self, x_start, y_start, x_end, y_end, duration=30):
+    def _execute_swipe_impl(self, x_start, y_start, x_end, y_end, duration=30):
         import ctypes
         import time
 
