@@ -33,6 +33,17 @@ class Image:
             self.Offset = image.Offset
             self.Similarity = image.Similarity
 
+        if isinstance(image, np.ndarray):
+            self.Main = image
+            self.Offset = Location(0, 0)
+            self.Similarity = 0.85
+
+    def center(self, left=0.0, right=0.0, top=0.0, bottom=0.0):
+        h, w = self.Main.shape[:2]
+        cx = int(w / 2 + (right - left) * w)
+        cy = int(h / 2 + (bottom - top) * h)
+        return Location(cx, cy)
+
     def set_offset(self, location):
         self.Offset = location
         return self
@@ -172,28 +183,15 @@ class EmberBase:
     def get_images_location(self, img, min_distance=5):
         screen = self.get_screen()
         img = Image(img)
-        h, w = img.Main.shape[:-1]
-
+        center = img.center()
         res = cv2.matchTemplate(screen, img.Main, cv2.TM_CCOEFF_NORMED)
-        locations = np.where(res >= img.Similarity)
-
-        ys, xs = locations
-
-        return_locations = []
-
+        ys, xs = np.where(res >= img.Similarity)
+        locations = []
         for x, y in zip(xs, ys):
-            this_location = Location(x + int(w / 2), y + int(h / 2))
-
-            have_same_location = False
-
-            for save_location in return_locations:
-                if this_location.distance(save_location) < min_distance:
-                    have_same_location = True
-
-            if have_same_location is False:
-                return_locations.append(this_location)
-
-        return return_locations
+            candidate = Location(x + center.x, y + center.y)
+            if not any(candidate.distance(saved) < min_distance for saved in locations):
+                locations.append(candidate)
+        return locations
 
     def touch_first_image_find(self, image):
         targets = self.get_images_location(image)
