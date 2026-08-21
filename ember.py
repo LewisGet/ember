@@ -256,9 +256,17 @@ class Ember(EmberBase):
         )
         output = result.stdout
         end = output.rfind("</hierarchy>")
-        if end < 0:
+        if end >= 0:
+            return output[: end + len("</hierarchy>")]
+
+        # Fallback for Android 11/12/13/14/15 where /dev/tty is not piped to stdout
+        subprocess.run([self.adb_path, "shell", "uiautomator", "dump", "/sdcard/window_dump.xml"], capture_output=True)
+        cat_result = subprocess.run([self.adb_path, "shell", "cat", "/sdcard/window_dump.xml"], capture_output=True, text=True)
+        cat_output = cat_result.stdout
+        cat_end = cat_output.rfind("</hierarchy>")
+        if cat_end < 0:
             raise RuntimeError("uiautomator dump returned no XML hierarchy")
-        return output[: end + len("</hierarchy>")]
+        return cat_output[: cat_end + len("</hierarchy>")]
 
 
 class AccessibilityEmber(EmberBase):
